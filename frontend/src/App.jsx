@@ -10,56 +10,80 @@ import {
 } from 'recharts'
 import './App.css'
 
-const API = 'http://localhost:8080/api'
+const API = '/api'
 const COLORS = ['#4f46e5', '#e11d48', '#16a34a', '#d97706']
+const REFRESH_MS = 60000
 
 function App() {
   const [markets, setMarkets] = useState([])
   const [selected, setSelected] = useState(null)
   const [chartData, setChartData] = useState([])
   const [outcomes, setOutcomes] = useState([])
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [error, setError] = useState(null)
 
-  // Load the list of markets once, when the page opens
+  // Load the tracked markets now, then again every minute
   useEffect(() => {
-    fetch(`${API}/markets/latest`)
-      .then((res) => res.json())
-      .then((rows) => {
-        const byId = new Map()
-        rows.forEach((row) => {
-          if (!byId.has(row.marketId)) {
-            byId.set(row.marketId, {
-              marketId: row.marketId,
-              question: row.question,
-            })
-          }
+    function loadMarkets() {
+      fetch(`${API}/markets/latest`)
+        .then((res) => res.json())
+        .then((rows) => {
+          setMarkets(rows)
+          // If the open market was dropped from the list, close its chart
+          setSelected((current) =>
+            current && rows.some((m) => m.marketId === current.marketId)
+              ? current
+              : null
+          )
+          setLastUpdated(new Date())
+          setError(null)
         })
-        setMarkets([...byId.values()])
-      })
+        .catch(() => setError('Cannot reach the server'))
+    }
+
+    loadMarkets()
+    const timer = setInterval(loadMarkets, REFRESH_MS)
+    return () => clearInterval(timer)
   }, [])
 
-  // Load the price history whenever a different market is clicked
+  // Load the open market's price history now, then again every minute
   useEffect(() => {
     if (!selected) return
-    fetch(`${API}/markets/${selected.marketId}/prices`)
-      .then((res) => res.json())
-      .then((rows) => {
-        const byTime = new Map()
-        const names = new Set()
-        rows.forEach((row) => {
-          names.add(row.outcome)
-          if (!byTime.has(row.capturedAt)) {
-            byTime.set(row.capturedAt, { time: row.capturedAt })
-          }
-          byTime.get(row.capturedAt)[row.outcome] = row.price
+
+    function loadHistory() {
+      fetch(`${API}/markets/${selected.marketId}/prices`)
+        .then((res) => res.json())
+        .then((rows) => {
+          const byTime = new Map()
+          const names = new Set()
+          rows.forEach((row) => {
+            names.add(row.outcome)
+            if (!byTime.has(row.capturedAt)) {
+              byTime.set(row.capturedAt, { time: row.capturedAt })
+            }
+            byTime.get(row.capturedAt)[row.outcome] = row.price
+          })
+          setChartData([...byTime.values()])
+          setOutcomes([...names])
         })
-        setChartData([...byTime.values()])
-        setOutcomes([...names])
-      })
+        .catch(() => setError('Cannot reach the server'))
+    }
+
+    loadHistory()
+    const timer = setInterval(loadHistory, REFRESH_MS)
+    return () => clearInterval(timer)
   }, [selected])
 
   return (
     <div className="app">
       <h1>Prediction Market Dashboard</h1>
+      <p className="status">
+        {error
+          ? error
+          : lastUpdated
+            ? `Updated ${lastUpdated.toLocaleTimeString()} · refreshes every minute`
+            : 'Loading...'}
+      </p>
       <div className="layout">
         <ul className="market-list">
           {markets.map((m) => (
@@ -68,7 +92,7 @@ function App() {
               className={selected?.marketId === m.marketId ? 'active' : ''}
               onClick={() => setSelected(m)}
             >
-              {m.question}
+              <span className="rank">#{m.volumeRank}</span> {m.question}
             </li>
           ))}
         </ul>
@@ -79,6 +103,10 @@ function App() {
           ) : (
             <>
               <h2>{selected.question}</h2>
+              <p className="status">
+                Tracked since{' '}
+                {new Date(selected.streakStartedAt).toLocaleString()}
+              </p>
               <ResponsiveContainer width="100%" height={400}>
                 <LineChart data={chartData}>
                   <XAxis
