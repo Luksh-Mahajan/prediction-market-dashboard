@@ -38,3 +38,14 @@
   border-radius: 12px;
   padding: 16px;
 }
+.status {
+  color: #64748b;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.rank {
+  color: #64748b;
+  font-weight: 600;
+  margin-right: 4px;
+}
